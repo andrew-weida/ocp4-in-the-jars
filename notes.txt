@@ -168,3 +168,27 @@ ERROR
 FATAL failed to fetch Cluster: failed to generate asset "Cluster": failed to create cluster: failed to apply Terraform: error(BaremetalIronicAPITimeout) from Infrastructure Provider: Unable to the reach provisioning service. This failure can be caused by incorrect network/proxy settings, inability to download the machine operating system images, or other misconfiguration. Please check access to the bootstrap host, and for any failing services.
 
 ~~~
+
+
+#########################
+### Redfish API Calls ###
+#########################
+
+export REDFISH_ID=SOME_GUID
+
+# Set CD (iso) as boot source
+curl -k -u admin:password \
+-X PATCH -H 'Content-Type: application/json' \
+-d '{"Boot": {"BootSourceOverrideTarget": "Cd", "BootSourceOverrideEnabled": "Once"}}' \
+https://192.168.203.1:8000/redfish/v1/Systems/${REDFISH_ID};done
+
+# Insert Instal Media
+curl -k -u admin:password \
+-d '{"Image":"http://bastion:8080/agent.x86_64.iso", "Inserted": true}' \
+-H "Content-Type: application/json" \
+-X POST https://192.168.203.1:8000/redfish/v1/Managers/${REDFISH_ID}/VirtualMedia/Cd/Actions/VirtualMedia.InsertMedia
+
+# Reboot
+curl -k -u admin:password -d '{"ResetType":"ForceOff"}' \
+    -H "Content-Type: application/json" -X POST \
+     https://192.168.203.1:8000/redfish/v1/Systems/${REDFISH_ID}/Actions/ComputerSystem.Reset

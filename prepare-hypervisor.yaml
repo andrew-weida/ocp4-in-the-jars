@@ -3,6 +3,7 @@
   become: True
   vars_files:
     - variables.yaml
+    - vault-variables.yaml
     - bm-ansible-nodes.json
   tasks:
   - name: Set hostname
@@ -112,20 +113,6 @@
         net.ipv6.neigh.default.gc_thresh2 = 16384
         net.ipv6.neigh.default.gc_thresh3 = 32768
 
-  # on this case (isolated) the bridge kept default gw ip
-  - name: Create provisioning bridge - isolated
-    nmcli:
-      type: bridge
-      conn_name: "{{ bridge_prov }}"
-      ifname: "{{ bridge_prov }}"
-      ip4: "{{ provision_net.bridge_prov_ip }}/{{ provision_net.prefix }}"
-      stp: False
-      mtu: "{{ provision_net.mtu }}"
-      state: present
-    when:
-      - kvmhost.provisioning_bridge_create|bool
-      - kvmhost.provisioning_bridge_isolated|bool
-
   - name: Create provisioning bridge template
     template:
       src: ansible-templates/root/kvmhost-provisioning-net.sh
@@ -134,42 +121,58 @@
       owner: root
       group: root
     when:
+      - not redfish.enable|bool
       - kvmhost.provisioning_bridge_create|bool
-      - not kvmhost.provisioning_bridge_isolated|bool
 
-  - name: Create provisioning bridge - steal ip
-    shell: |
-      nohup /root/kvmhost-provisioning-net.sh &
-    when:
-      - kvmhost.provisioning_bridge_create|bool
-      - not kvmhost.provisioning_bridge_isolated|bool
-
-  - name: Add vbmc_ip to provisioning bridge - isolated
-    shell: |
-      nmcli connection modify {{ bridge_prov }} +ipv4.addresses {{ item.vbmc_ip }}/{{ provision_net.prefix }}
-    with_items:
-      - "{{ master_nodes }}"
-      - "{{ worker_nodes }}"
-      - "{{ utility_nodes }}"
-      - "{{ bastion_nodes }}"
-    when:
+  # on this case (isolated) the bridge kept default gw ip
+  - name: Create provisioning bridge - isolated
+    when: 
+      - not redfish.enable|bool
       - kvmhost.provisioning_bridge_create|bool
       - kvmhost.provisioning_bridge_isolated|bool
-      - not redfish.enable|bool
+    block:
+    - name: Create provisioning bridge
+      nmcli:
+        type: bridge
+        conn_name: "{{ bridge_prov }}"
+        ifname: "{{ bridge_prov }}"
+        ip4: "{{ provision_net.bridge_prov_ip }}/{{ provision_net.prefix }}"
+        stp: False
+        mtu: "{{ provision_net.mtu }}"
+        state: present
 
-  - name: Add vbmc_ip to provisioning bridge
-    shell: |
-      nmcli connection modify {{ bridge_prov }} +ipv4.addresses {{ item.vbmc_ip }}/{{ provision_net.prefix }}
-    with_items:
-      - "{{ master_nodes }}"
-      - "{{ worker_nodes }}"
-      - "{{ utility_nodes }}"
-      - "{{ bastion_nodes }}"
-    when:
-      - kvmhost.provisioning_bridge_create|bool
-      - not kvmhost.provisioning_bridge_isolated|bool
-      - ansible_nodename == item.hypervisor_name
+    - name: Add vbmc_ip to provisioning bridge - isolated
+      shell: |
+        nmcli connection modify {{ bridge_prov }} +ipv4.addresses {{ item.vbmc_ip }}/{{ provision_net.prefix }}
+      with_items:
+        - "{{ master_nodes }}"
+        - "{{ worker_nodes }}"
+        - "{{ utility_nodes }}"
+        - "{{ bastion_nodes }}"
+
+    - name: Fix mtu for isolated network - provisioning
+      shell: |
+        nmcli connection modify {{ bridge_prov }} 802-3-ethernet.mtu {{ provision_net.mtu }}
+
+  - name: Create provisioning bridge (not isolated)
+    when: 
       - not redfish.enable|bool
+      - not kvmhost.provisioning_bridge_isolated|bool
+    block:
+    - name: Create provisioning bridge - steal ip
+      ansible.builtin.shell: |
+        nohup /root/kvmhost-provisioning-net.sh &
+
+    - name: Add vbmc_ip to provisioning bridge
+      ansible.builtin.shell: |
+        nmcli connection modify {{ bridge_prov }} +ipv4.addresses {{ item.vbmc_ip }}/{{ provision_net.prefix }}
+      with_items:
+        - "{{ master_nodes }}"
+        - "{{ worker_nodes }}"
+        - "{{ utility_nodes }}"
+        - "{{ bastion_nodes }}"
+      when:
+        - ansible_nodename == item.hypervisor_name
 
   - name: Create baremetal bridge - isolated
     nmcli:
@@ -184,7 +187,14 @@
       - kvmhost.baremetal_bridge_create|bool
       - kvmhost.baremetal_bridge_isolated|bool
 
-  - name: Create baremetal bridge template
+  - name: Fix mtu for isolated network - baremetal
+    shell: |
+      nmcli connection modify {{ bridge_bm }} 802-3-ethernet.mtu {{ baremetal_net.mtu }}
+    when:
+      - kvmhost.baremetal_bridge_create|bool
+      - kvmhost.baremetal_bridge_isolated|bool
+
+  - name: Generate script (kvmhost-baremetal-net.sh) to create baremetal bridge (not isolated)
     template:
       src: ansible-templates/root/kvmhost-baremetal-net.sh
       dest: /root/kvmhost-baremetal-net.sh
@@ -195,26 +205,12 @@
       - kvmhost.baremetal_bridge_create|bool
       - not kvmhost.baremetal_bridge_isolated|bool
 
-  - name: Create baremetal bridge - not isolated
+  - name: Create baremetal bridge (not isolated)
     shell: |
       nohup /root/kvmhost-baremetal-net.sh &
     when:
       - kvmhost.baremetal_bridge_create|bool
       - not kvmhost.baremetal_bridge_isolated|bool
-
-  - name: Fix mtu for isolated network - provisioning
-    shell: |
-      nmcli connection modify {{ bridge_prov }} 802-3-ethernet.mtu {{ provision_net.mtu }}
-    when:
-      - kvmhost.provisioning_bridge_create|bool
-      - kvmhost.provisioning_bridge_isolated|bool
-
-  - name: Fix mtu for isolated network - baremetal
-    shell: |
-      nmcli connection modify {{ bridge_bm }} 802-3-ethernet.mtu {{ baremetal_net.mtu }}
-    when:
-      - kvmhost.baremetal_bridge_create|bool
-      - kvmhost.baremetal_bridge_isolated|bool
 
   - name: Add baremetal ip
     shell: |
@@ -264,7 +260,6 @@
         - tcpdump
         - bind-utils
         - jq
-        - vim
         - bash-completion
         - git
         - iptables-services
@@ -276,18 +271,20 @@
         - pciutils
         - libvirt
         - qemu-kvm
-        - virt-manager
         - virt-install
+        - virt-top
+        - guestfs-tools
         - libguestfs-tools
         - libguestfs-xfs
         - virt-viewer
         - net-tools
         - mlocate
         - sshpass
-        - redhat-lsb-core
         - podman
         - ipmitool
         - tree
+        - httpd-tools
+        - ansible
       state: present
 
   - name: Install keepalived
@@ -299,36 +296,9 @@
       - kvmhost.enable_baremetal_gw|bool
       - baremetal_ip is defined
 
-  #- name: Install centos-release-ansible-29.noarch
-  #  shell: |
-  #    dnf install -y centos-release-ansible-29.noarch
-  #  when:
-  #    - ansible_distribution == "CentOS"
-  #    - ansible_distribution_release == "Stream"
-
-  #- name: Install ansible
-  #  dnf:
-  #    name:
-  #      - ansible
-  #    state: present
-
-  - name: Install centos-release-openstack-yoga.noarch
-    shell: |
-      dnf install -y centos-release-openstack-yoga.noarch
-    when:
-      - ansible_distribution == "CentOS"
-      - ansible_distribution_release == "Stream"
-
-  - name: Install rdo-release-yoga-1.el8.noarch.rpm
-    shell: |
-      dnf install -y https://repos.fedorapeople.org/repos/openstack/openstack-yoga/rdo-release-yoga-1.el8.noarch.rpm
-    when:
-      - ansible_distribution != "CentOS"
-      - ansible_os_family == "RedHat"
-
   - name: Install virtualbmc
-    dnf:
-      name: python3-virtualbmc
+    pip:
+      name: virtualbmc
       state: present
     when:
       - not redfish.enable|bool
@@ -341,21 +311,6 @@
     when:
       - not redfish.enable|bool
 
-  - name: Install python3-sushy-tools
-    dnf:
-      name:
-        - python3-sushy-tools
-        - httpd-tools
-      state: present
-    when:
-      - redfish.enable|bool
-
-  - name: Install ansible
-    dnf:
-      name:
-        - ansible
-      state: present
-
   - name: Add sushy-tools user to libvirt group
     user:
       name: sushy-tools
@@ -363,6 +318,12 @@
       append: True
     when:
       - redfish.enable|bool
+
+  - name: Ensure /etc/sushy-emulator directory exists
+    ansible.builtin.file:
+      path: /etc/sushy-emulator 
+      state: directory
+      mode: '0755'
 
   - name: Create auth file for sushy-tools
     shell: "htpasswd -c -B -b /etc/sushy-emulator/auth_file admin {{ secure_password }}"
@@ -401,27 +362,26 @@
     when:
       - redfish.enable|bool
 
+  - name: Configure sushy-emulator systemd unit (quadlet)  
+    template:
+      src: ansible-templates/etc/sushy-emulator/sushy-emulator.container.j2
+      dest: /etc/containers/systemd/sushy-emulator.container
+      owner: root
+      group: sushy-tools
+      mode: 0640
+      backup: True
+    when:
+      - redfish.enable|bool
+
   - name: Restart sushy-emulator service
-    systemd:
-      name: sushy-emulator.service
+    ansible.builtin.systemd_service:
+      name: sushy-emulator
+      daemon_reload: true
+      enabled: true
       state: restarted
       enabled: True
     when:
       - redfish.enable|bool
-
-  #- name: Remove centos-release-openstack-yoga.noarch
-  #  shell: |
-  #    dnf remove -y centos-release-openstack-yoga.noarch
-  #  when:
-  #    - ansible_distribution == "CentOS"
-  #    - ansible_distribution_release == "Stream"
-
-  #- name: Remove rdo-release
-  #  shell: |
-  #    dnf remove -y rdo-release
-  #  when:
-  #    - ansible_distribution != "CentOS"
-  #    - ansible_os_family == "RedHat"
 
   - name: Clean dnf cache
     shell: |
@@ -490,6 +450,14 @@
       syn: match
       jump: ACCEPT
       comment: Accept new SSH connections.
+
+  - name: Allow new traffic over port 9090 (cockpit).
+    iptables:
+      chain: INPUT
+      protocol: tcp
+      destination_port: 9090
+      jump: ACCEPT
+      comment: Traffic for cockpit
 
   - name: enable traffic from loopback
     iptables:
@@ -788,7 +756,7 @@
     systemd:
       state: restarted
       name: libvirtd
-      enabled: yes
+      enabled: true
 
   - name: Check if pool default is present
     shell: |
@@ -871,16 +839,16 @@
     when:
       - kvmhost.enable_baremetal_gw
 
-  - name: clone repo
-    shell: |
-      cd /root
-      git clone https://github.com/amedeos/ocp4-in-the-jars
-      cd /root/ocp4-in-the-jars
-      git pull
-    ignore_errors: True
-    when:
-      - kvmhost.provisioning_bridge_isolated|bool
-      - kvmhost.baremetal_bridge_isolated|bool
+  # - name: clone repo
+  #   shell: |
+  #     cd /root
+  #     git clone https://github.com/andrew-weida/ocp4-homelab.git
+  #     cd /root/ocp4-homelab
+  #     git pull
+  #   ignore_errors: True
+  #   when:
+  #     - kvmhost.provisioning_bridge_isolated|bool
+  #     - kvmhost.baremetal_bridge_isolated|bool
 
   - name: create images dir
     file:
@@ -891,15 +859,15 @@
     copy:
       backup: True
       src: bm-ansible-nodes-disconnected.json
-      dest: /root/ocp4-in-the-jars/bm-ansible-nodes.json
+      dest: /root/ocp4-homelab/bm-ansible-nodes.json
     when:
       - kvmhost.provisioning_bridge_isolated|bool
       - kvmhost.baremetal_bridge_isolated|bool
 
   - name: Overwrite image_location
     shell: |
-      IMAGE=$(egrep '^image:\s+' /root/ocp4-in-the-jars/variables.yaml | sed -E 's/^image:\s+//g')
-      sed -i -E "s@^image_location:\s+.*@image_location: /root/images/${IMAGE}@g" /root/ocp4-in-the-jars/variables.yaml
+      IMAGE=$(egrep '^image:\s+' /root/ocp4-homelab/variables.yaml | sed -E 's/^image:\s+//g')
+      sed -i -E "s@^image_location:\s+.*@image_location: /root/images/${IMAGE}@g" /root/ocp4-homelab/variables.yaml
     when:
       - kvmhost.provisioning_bridge_isolated|bool
       - kvmhost.baremetal_bridge_isolated|bool
@@ -913,12 +881,12 @@
   #    - kvmhost.provisioning_bridge_isolated|bool
   #    - kvmhost.baremetal_bridge_isolated|bool
   #  with_items:
-  #    - /root/ocp4-in-the-jars/files/.ssh/id_rsa
-  #    - /root/ocp4-in-the-jars/files/.ssh/id_rsa.pub
+  #    - /root/ocp4-homelab/files/.ssh/id_rsa
+  #    - /root/ocp4-homelab/files/.ssh/id_rsa.pub
 
   #- name: Create SSH key
   #  openssh_keypair:
-  #    path: /root/ocp4-in-the-jars/files/.ssh/id_rsa
+  #    path: /root/ocp4-homelab/files/.ssh/id_rsa
   #    type: rsa
   #  when:
   #    - kvmhost.replace_ssh_key|bool
@@ -927,19 +895,11 @@
 
   - name: Overwrite replace_ddns_duckdns
     shell: |
-      sed -i -E 's/replace_ddns_duckdns:.*/replace_ddns_duckdns: True/g' /root/ocp4-in-the-jars/variables.yaml
+      sed -i -E 's/replace_ddns_duckdns:.*/replace_ddns_duckdns: True/g' /root/ocp4-homelab/variables.yaml
     when:
       - enable_ddns_duckdns|bool
       - kvmhost.provisioning_bridge_isolated|bool
       - kvmhost.baremetal_bridge_isolated|bool or ( redfish.enable|bool and redfish.enable_nat|bool )
-
-  - name: Create vimrc file
-    template:
-      src: ansible-templates/home/kni/vimrc
-      dest: /root/.vimrc
-      owner: root
-      group: root
-      mode: 0664
 
   - name: Final messages
     debug:
@@ -947,8 +907,8 @@
         - "#####################################################################################"
         - "# Please connect in ssh to your Hypervisor and run:                                 #"
         - "#                                                                                   #"
-        - "# scp <rhel8image.qcow2> <yourhypervisor>:/root/images/                             #"
-        - "# cd /root/ocp4-in-the-jars                                                         #"
+        - "# scp <rhel9image.qcow2> <yourhypervisor>:/root/images/                             #"
+        - "# cd /root/ocp4-homelab                                                         #"
         - '# ansible-playbook --extra-vars "@custom-variables.yaml" main.yaml                #'
         - "#                                                                                   #"
         - "# if you want to use OpenShift API and/or console outside your Hypervisor,          #"
@@ -957,7 +917,6 @@
         - "# {{ ansible_default_ipv4.address }} api.{{ domain }}                                              #"
         - "# {{ ansible_default_ipv4.address }} oauth-openshift.apps.{{ domain }}                             #"
         - "# {{ ansible_default_ipv4.address }} console-openshift-console.apps.{{ domain }}                   #"
-        - "# {{ ansible_default_ipv4.address }} noobaa-mgmt-openshift-storage.apps.{{ domain }}               #"
         - "#                                                                                   #"
         - "#####################################################################################"
     delegate_to: "{{ groups['kvmhost'][0] }}"

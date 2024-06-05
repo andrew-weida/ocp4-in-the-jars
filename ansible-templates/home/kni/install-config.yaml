@@ -5,10 +5,10 @@ metadata:
 networking:
   machineNetwork:
   - cidr: {{ baremetal_net.net }}/{{ baremetal_net.prefix }}
-  networkType: OpenShiftSDN
+  networkType: OVNKubernetes
 compute:
 - name: worker
-  replicas: 2
+  replicas: {{ worker_nodes | selectattr('state', 'equalto', 'present') | list | length }}
 controlPlane:
   name: master
   replicas: 3
@@ -54,7 +54,7 @@ platform:
 {% endif %}
 {% endfor %}
 {% for host in worker_nodes %}
-{% if host != 'localhost' %}
+{% if host != 'localhost' and host.state == 'present' %}
       - name: {{ host.name }}
         role: worker
         bmc:

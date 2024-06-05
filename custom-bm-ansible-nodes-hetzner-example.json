@@ -87,7 +87,6 @@
         {
             "name": "worker-0",
             "state": "present",
-            "is_odf": "true",
             "hypervisor_name": "hetlab02.example.com",
             "hypervisor_user": "root",
             "hypervisor_ssh_key": "~/.ssh/id_rsa",
@@ -105,7 +104,6 @@
         {
             "name": "worker-1",
             "state": "present",
-            "is_odf": "true",
             "hypervisor_name": "hetlab02.example.com",
             "hypervisor_user": "root",
             "hypervisor_ssh_key": "~/.ssh/id_rsa",
@@ -123,7 +121,6 @@
         {
             "name": "worker-2",
             "state": "present",
-            "is_odf": "true",
             "hypervisor_name": "hetlab02.example.com",
             "hypervisor_user": "root",
             "hypervisor_ssh_key": "~/.ssh/id_rsa",

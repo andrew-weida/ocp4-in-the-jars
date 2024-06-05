@@ -86,8 +86,7 @@
     "worker_nodes": [
         {
             "name": "worker-0",
-            "state": "present",
-            "is_odf": "true",
+            "state": "absent",
             "hypervisor_name": "localhost",
             "hypervisor_user": "root",
             "hypervisor_ssh_key": "~/.ssh/id_rsa",
@@ -104,8 +103,7 @@
         },
         {
             "name": "worker-1",
-            "state": "present",
-            "is_odf": "true",
+            "state": "absent",
             "hypervisor_name": "localhost",
             "hypervisor_user": "root",
             "hypervisor_ssh_key": "~/.ssh/id_rsa",
@@ -122,8 +120,7 @@
         },
         {
             "name": "worker-2",
-            "state": "present",
-            "is_odf": "true",
+            "state": "absent",
             "hypervisor_name": "localhost",
             "hypervisor_user": "root",
             "hypervisor_ssh_key": "~/.ssh/id_rsa",

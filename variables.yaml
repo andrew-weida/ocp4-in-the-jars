@@ -55,13 +55,12 @@ worker:
   cpu: 8
   memory: 32768
   disk: 150G
-  osd_disk: 400G
 kvmhost:
   enable_selinux: True
   reboot_timeout: 1200
   enable_portfw: True
   replace_ddns_duckdns: False
-  provisioning_bridge_create: True
+  provisioning_bridge_create: False
   provisioning_bridge_isolated: True
   baremetal_bridge_create: True
   baremetal_bridge_isolated: True
@@ -77,9 +76,9 @@ enable_ddns_duckdns: False
 enable_letsencrypt: False
 # used on cleanup
 image_dir: /var/lib/libvirt/images
-image_dir_bastion: /var/lib/libvirt/imagesssd
-image: rhel-8.6-x86_64-kvm.qcow2
-image_location: /root/images/rhel-8.6-x86_64-kvm.qcow2
+image_dir_bastion: /var/lib/libvirt/images
+image: rhel-9.4-x86_64-kvm.qcow2
+image_location: /root/images/rhel-9.4-x86_64-kvm.qcow2
 pull_secret_file: pull-secret.txt
-supported_os: rhel8
-ocpversion: stable-4.11
+supported_os: rhel9
+ocpversion: stable-4.15
