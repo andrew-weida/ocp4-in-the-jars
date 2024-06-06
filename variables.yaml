@@ -3,13 +3,13 @@ bridge_bm: bm
 libguestfs_path: /usr/share/guestfs/appliance/
 dns_ip_utility: 1.1.1.1
 redfish:
-  enable: True
+  enable: true
   config_file: /etc/sushy-emulator/sushy-emulator.conf
   listen_port: 8000
   # set to all to listen on all IPs, instead set default to listen on default ip
   listen_ip: all
   auth_file: /etc/sushy-emulator/auth_file
-  enable_nat: True
+  enable_nat: true
 provision_net:
   net: 192.168.201.0
   netmask: 255.255.255.0
@@ -46,7 +46,7 @@ bastion:
   disk: 100G
   post_cpu: 2
   post_memory: 4096
-  post_scaledown: True
+  post_scaledown: true
 master:
   cpu: 4
   memory: 16384
@@ -56,24 +56,24 @@ worker:
   memory: 32768
   disk: 150G
 kvmhost:
-  enable_selinux: True
+  enable_selinux: true
   reboot_timeout: 1200
-  enable_portfw: True
-  replace_ddns_duckdns: False
-  provisioning_bridge_create: False
-  provisioning_bridge_isolated: True
-  baremetal_bridge_create: True
-  baremetal_bridge_isolated: True
-  enable_baremetal_gw: False
-  set_hostname: True
-  set_hosts: True
+  enable_portfw: true
+  replace_ddns_duckdns: false
+  provisioning_bridge_create: false
+  provisioning_bridge_isolated: true
+  baremetal_bridge_create: true
+  baremetal_bridge_isolated: true
+  enable_baremetal_gw: false
+  set_hostname: true
+  set_hosts: true
   additional_hosts: personal_hosts.j2
-  create_ssh_key: True
+  create_ssh_key: true
 cluster_name: ocp-lab
 base_domain: example.com
 domain: "{{ cluster_name }}.{{ base_domain }}"
-enable_ddns_duckdns: False
-enable_letsencrypt: False
+enable_ddns_duckdns: false
+enable_letsencrypt: false
 # used on cleanup
 image_dir: /var/lib/libvirt/images
 image_dir_bastion: /var/lib/libvirt/images

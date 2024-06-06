@@ -19,7 +19,7 @@ platform:
     apiVIP: {{ vip.api }}
     ingressVIP: {{ vip.apps }}
     bootstrapOSImage: BOOTSTRAPOSIMAGE
-{% if redfish.enable == True  %}
+{% if redfish.enable == true %}
     provisioningNetwork: Disabled
 {% else %}
     provisioningNetworkCIDR: {{ provision_net.net }}/{{ provision_net.prefix }}
@@ -35,15 +35,15 @@ platform:
       - name: {{ host.name }}
         role: master
         bmc:
-{% if redfish.enable == True  %}
+{% if redfish.enable == true  %}
           address: redfish-virtualmedia://{{ host.redfish_ip }}:{{ host.redfish_port }}/redfish/v1/Systems/{{ host.name }}
-          disableCertificateVerification: True
+          disableCertificateVerification: true
 {% else %}
           address: ipmi://{{ host.vbmc_ip }}:{{ host.vbmc_port }}
 {% endif %}
           username: admin
           password: {{ secure_password }}
-{% if redfish.enable == True  %}
+{% if redfish.enable == true  %}
         bootMACAddress: {{ host.baremetal_mac }}
 {% else %}
         bootMACAddress: {{ host.provisioning_mac }}
@@ -58,15 +58,15 @@ platform:
       - name: {{ host.name }}
         role: worker
         bmc:
-{% if redfish.enable == True  %}
+{% if redfish.enable == true  %}
           address: redfish-virtualmedia://{{ host.redfish_ip }}:{{ host.redfish_port }}/redfish/v1/Systems/{{ host.name }}
-          disableCertificateVerification: True
+          disableCertificateVerification: true
 {% else %}
           address: ipmi://{{ host.vbmc_ip }}:{{ host.vbmc_port }}
 {% endif %}
           username: admin
           password: {{ secure_password }}
-{% if redfish.enable == True  %}
+{% if redfish.enable == true  %}
         bootMACAddress: {{ host.baremetal_mac }}
 {% else %}
         bootMACAddress: {{ host.provisioning_mac }}

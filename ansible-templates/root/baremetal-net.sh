@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-{% if redfish.enable == True  %}
+{% if redfish.enable == true  %}
 INTERFACE="eth0"
 {% else %}
 INTERFACE="eth1"
@@ -16,7 +16,7 @@ nmcli con add type bridge-slave ifname ${INTERFACE} master baremetal
 nmcli connection modify bridge-slave-${INTERFACE} 802-3-ethernet.mtu {{ baremetal_net.mtu }}
 nmcli connection modify baremetal ipv4.addresses {{ bastion_nodes[0].baremetal_ip }}/{{ baremetal_net.prefix }}
 
-{% if redfish.enable == True  %}
+{% if redfish.enable == true  %}
 nmcli connection modify baremetal ipv4.dns {{ utility_nodes[0].baremetal_ip }}
 {% endif %}
 

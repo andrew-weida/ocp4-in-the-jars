@@ -6,7 +6,7 @@
     - bm-ansible-nodes.json
   tasks:
   - name: Add all hypervisor group-host
-    add_host:
+    ansible.builtin.add_host:
       name: "{{ item.hypervisor_name }}"
       ansible_ssh_user: "{{ item.hypervisor_user }}"
       ansible_ssh_private_key_file: "{{ item.hypervisor_ssh_key }}"
@@ -14,8 +14,8 @@
         - hypervisor_host
     when:
       - item.state == "present"
+      - item.hypervisor_name != "localhost"
     with_items: "{{ bastion_nodes }}"
-    when: item.hypervisor_name != "localhost"
 
 - name:  Add Bastion VM/Node
   hosts: localhost
@@ -25,7 +25,7 @@
     - bm-ansible-nodes.json
   tasks:
   - name: Add bastion group-host - no localhost
-    add_host:
+    ansible.builtin.add_host:
       name: "{{ item.name }}.{{ domain }}"
       ansible_ssh_pass: "{{ secure_password }}"
       ansible_ssh_user: kni
@@ -37,7 +37,7 @@
     when: item.hypervisor_name != "localhost"
 
   - name: Add bastion group-host - localhost
-    add_host:
+    ansible.builtin.add_host:
       name: "{{ item.name }}.{{ domain }}"
       ansible_ssh_pass: "{{ secure_password }}"
       ansible_ssh_user: kni
@@ -56,32 +56,32 @@
     - bm-ansible-nodes.json
   tasks:
   - name: Download openshift-client-linux
-    get_url:
+    ansible.builtin.get_url:
       url: "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{{ ocpversion }}/openshift-client-linux.tar.gz"
       dest: /home/kni/openshift-client-linux.tar.gz
       mode: 0664
 
   - name: Download openshift-install-linux
-    get_url:
+    ansible.builtin.get_url:
       url: "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{{ ocpversion }}/openshift-install-linux.tar.gz"
       dest: /home/kni/openshift-install-linux.tar.gz
       mode: 0664
 
   - name: Uncompress openshift-client-linux.tar.gz
-    shell: |
+    ansible.builtin.shell: |
       tar -xvf /home/kni/openshift-client-linux.tar.gz -C /usr/bin/
-    become: True
+    become: true
 
   - name: Uncompress openshift-install-linux.tar.gz
-    shell: |
+    ansible.builtin.shell: |
       tar -xvf /home/kni/openshift-install-linux.tar.gz -C /usr/bin/
-    become: True
+    become: true
 
   - name: Create bash completion file
-    shell: |
+    ansible.builtin.shell: |
       oc completion bash > /etc/bash_completion.d/openshift
       openshift-install completion bash > /etc/bash_completion.d/openshift-install
-    become: True
+    become: true
 
   - name: Copy pull-secret.txt
     ansible.builtin.copy: 
@@ -92,25 +92,25 @@
       mode: 0600
 
   - name: Extract openshift-baremetal-install binary
-    shell: |
+    ansible.builtin.shell: |
       export RELEASE_IMAGE=$(curl -s https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{{ ocpversion }}/release.txt | grep 'Pull From: quay.io' | awk -F ' ' '{print $3}')
       oc adm release extract --registry-config "/home/kni/pull-secret.txt" --command=openshift-baremetal-install --to "/home/kni" ${RELEASE_IMAGE}
       sudo cp /home/kni/openshift-baremetal-install /usr/bin/
 
   - name: Create /home/kni/rhcos_image_cache directory
-    file:
+    ansible.builtin.file:
       path: /home/kni/rhcos_image_cache
       state: directory
       owner: kni
       group: kni
 
   - name: Set selinux context for /home/kni/rhcos_image_cache
-    shell: |
+    ansible.builtin.shell: |
       sudo semanage fcontext -a -t httpd_sys_content_t "/home/kni/rhcos_image_cache(/.*)?"
       sudo restorecon -Rv /home/kni/rhcos_image_cache
 
   - name: Ensure libvirt is installed
-    dnf:
+    ansible.builtin.dnf:
       name:
         - libvirt
         - qemu-kvm
@@ -119,67 +119,67 @@
         - jq
         - ipmitool
       state: present
-    become: True
+    become: true
 
   - name: Add kni to libvirt group
-    user:
+    ansible.builtin.user:
       name: kni
-      append: True
+      append: true
       groups: libvirt
-    become: True
+    become: true
 
   - name: Enable and start libvirtd
-    systemd:
+    ansible.builtin.systemd_service:
       name: libvirtd
-      enabled: True
+      enabled: true
       state: started
-    become: True
+    become: true
 
   - name: Configure libvirt pool
-    shell: |
+    ansible.builtin.shell: |
       virsh pool-define-as --name default --type dir --target /var/lib/libvirt/images
       virsh pool-start default
       virsh pool-autostart default
-    become: True
+    become: true
   
   - name: Create baremetal-net.sh
-    template:
+    ansible.builtin.template:
       src: ansible-templates/root/baremetal-net.sh
       dest: /root/baremetal-net.sh
       owner: root
       group: root
       mode: 0755
-    become: True
+    become: true
 
   - name: Execute baremetal-net.sh
-    shell: |
+    ansible.builtin.shell: |
       nohup /root/baremetal-net.sh &
-    become: True
+    become: true
 
   - name: Create provisioning-net.sh
-    template:
+    ansible.builtin.template:
       src: ansible-templates/root/provisioning-net.sh
       dest: /root/provisioning-net.sh
       owner: root
       group: root
       mode: 0755
-    become: True
+    become: true
     when:
       - not redfish.enable|bool
 
   - name: Execute provisioning-net.sh
-    shell: |
+    ansible.builtin.shell: |
       nohup /root/provisioning-net.sh &
-    become: True
+    become: true
     when:
       - not redfish.enable|bool
 
   - name: Reboot bastion
-    reboot:
-    become: True
+    ansible.builtin.reboot:
+    become: true
 
   - name: Download RHCOS images
-    shell: |
+    ansible.builtin.shell: |
       export RHCOS_QEMU_URI=$(/usr/bin/openshift-baremetal-install coreos print-stream-json | jq -r --arg ARCH "$(arch)" '.architectures[$ARCH].artifacts.qemu.formats["qcow2.gz"].disk.location')
       export RHCOS_QEMU_PATH=$(/usr/bin/openshift-baremetal-install coreos print-stream-json | jq -r --arg ARCH "$(arch)" '.architectures[$ARCH].artifacts.qemu.formats["qcow2.gz"].disk["sha256"]')
       export RHCOS_QEMU_UNCOMPRESSED_SHA256=$(/usr/bin/openshift-baremetal-install coreos print-stream-json | jq -r --arg ARCH "$(arch)" '.architectures[$ARCH].artifacts.qemu.formats["qcow2.gz"].disk["uncompressed-sha256"]')
@@ -202,47 +202,47 @@
         - "8080:8080"
 
   - name: Create openshift-baremetal-install completion bash
-    shell: |
+    ansible.builtin.shell: |
       openshift-baremetal-install completion bash > /etc/bash_completion.d/openshift-baremetal-install
-    become: True
+    become: true
 
   - name: Copy install-config.yaml
-    template:
+    ansible.builtin.template:
       src: ansible-templates/home/kni/install-config.yaml
       dest: /home/kni/install-config.yaml
-      backup: True
+      backup: true
       owner: kni
       group: kni
 
   - name: Insert pullSecret in install-config.yaml
-    shell: |
+    ansible.builtin.shell: |
       echo -n "pullSecret: '" >> /home/kni/install-config.yaml
       cat /home/kni/pull-secret.txt >> /home/kni/install-config.yaml
       sed -E -i "s@^(pullSecret: .*)@\1'@g" /home/kni/install-config.yaml
       echo "" >> /home/kni/install-config.yaml
 
   - name: Insert bootstrapOSImage in install-config.yaml
-    shell: |
+    ansible.builtin.shell: |
       export BOI=$(sed -E 's/^bootstrapOSImage:\s+//g' /home/kni/osimage.txt)
       sed -i "s#BOOTSTRAPOSIMAGE#${BOI}#g" /home/kni/install-config.yaml
 
   - name: Insert sshKey in install-config.yaml
-    shell: |
+    ansible.builtin.shell: |
       echo -n "sshKey: '" >> /home/kni/install-config.yaml
       cat /home/kni/.ssh/id_rsa.pub >> /home/kni/install-config.yaml
       sed -E -i "s@^(sshKey: .*)@\1'@g" /home/kni/install-config.yaml
 
   - name: Create clusterconfigs directory
-    shell: |
+    ansible.builtin.shell: |
       rm -rf /home/kni/{{ cluster_name }}
       mkdir -p /home/kni/{{ cluster_name }}/openshift
 
   - name: Copy install-config.yaml to clusterconfigs directory
-    shell: |
+    ansible.builtin.shell: |
       cp -f install-config.yaml /home/kni/{{ cluster_name }}
 
   - name: Remove old bootstrap resources
-    shell: |
+    ansible.builtin.shell: |
       for i in $(sudo virsh list --all | tail -n +3 | grep bootstrap | awk {'print $2'});
       do
         sudo virsh destroy $i;
@@ -252,14 +252,6 @@
         sudo virsh pool-destroy $i;
         sudo virsh pool-undefine $i;
       done
-
-  - name: Create vimrc file
-    template:
-      src: ansible-templates/home/kni/vimrc
-      dest: /home/kni/.vimrc
-      owner: kni
-      group: kni
-      mode: 0664
 
   - name: Restart image cache container
     containers.podman.podman_container:

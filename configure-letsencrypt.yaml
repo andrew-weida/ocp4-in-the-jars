@@ -24,7 +24,7 @@
     when:
       - kvmhost.replace_ddns_duckdns|bool
     delegate_to: "{{ item.hypervisor_name }}"
-    run_once: True
+    run_once: true
     with_items: "{{ bastion_nodes }}"
 
 - name:  Add Bastion VM/Node
@@ -78,7 +78,7 @@
       mode: 0755
   
   - name: Create account-key
-    openssl_privatekey:
+    community.crypto.openssl_privatekey:
       path: "certs-letsencrypt/account.key"
       type: RSA
       size: 4096
@@ -89,7 +89,7 @@
       dest: "certs-letsencrypt/isrgrootx1.pem"
   
   - name: Create {{ domain }}.key
-    openssl_privatekey:
+    community.crypto.openssl_privatekey:
       path: "certs-letsencrypt/{{ domain }}/cert.key"
       type: RSA
       size: 4096

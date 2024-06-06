@@ -5,73 +5,73 @@
     - vault-variables.yaml
     - bm-ansible-nodes.json
   tasks:
-  - name: Add bastion group-host - no localhost
-    add_host:
-      name: "{{ item.name }}.{{ domain }}"
-      ansible_ssh_pass: "{{ secure_password }}"
-      ansible_ssh_user: kni
-      ansible_become: True
-      ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ProxyCommand="ssh -W %h:%p -q {{ item.hypervisor_user }}@{{ item.hypervisor_name }}"'
-      groups:
-        - bastion
-    with_items:
-      - "{{ bastion_nodes }}"
-    when: item.hypervisor_name != "localhost"
+    - name: Add bastion group-host - no localhost
+      ansible.builtin.add_host:
+        name: "{{ item.name }}.{{ domain }}"
+        ansible_ssh_pass: "{{ secure_password }}"
+        ansible_ssh_user: kni
+        ansible_become: true
+        ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ProxyCommand="ssh -W %h:%p -q {{ item.hypervisor_user }}@{{ item.hypervisor_name }}"'
+        groups:
+          - bastion
+      with_items:
+        - "{{ bastion_nodes }}"
+      when: item.hypervisor_name != "localhost"
 
-  - name: Add bastion group-host - localhost
-    add_host:
-      name: "{{ item.name }}.{{ domain }}"
-      ansible_ssh_pass: "{{ secure_password }}"
-      ansible_ssh_user: kni
-      ansible_become: True
-      ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null '
-      groups:
-        - bastion
-    with_items:
-      - "{{ bastion_nodes }}"
-    when: item.hypervisor_name == "localhost"
+    - name: Add bastion group-host - localhost
+      ansible.builtin.add_host:
+        name: "{{ item.name }}.{{ domain }}"
+        ansible_ssh_pass: "{{ secure_password }}"
+        ansible_ssh_user: kni
+        ansible_become: true
+        ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null '
+        groups:
+          - bastion
+      with_items:
+        - "{{ bastion_nodes }}"
+      when: item.hypervisor_name == "localhost"
 
-  - name: Add utility group-host - no localhost
-    add_host:
-      name: "{{ item.name }}.{{ domain }}"
-      ansible_ssh_pass: "{{ secure_password }}"
-      ansible_ssh_user: kni
-      ansible_become: True
-      ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ProxyCommand="ssh -W %h:%p -q {{ item.hypervisor_user }}@{{ item.hypervisor_name }}"'
-      groups:
-        - utility
-    with_items:
-      - "{{ utility_nodes }}"
-    when: item.hypervisor_name != "localhost"
+    - name: Add utility group-host - no localhost
+      ansible.builtin.add_host:
+        name: "{{ item.name }}.{{ domain }}"
+        ansible_ssh_pass: "{{ secure_password }}"
+        ansible_ssh_user: kni
+        ansible_become: true
+        ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ProxyCommand="ssh -W %h:%p -q {{ item.hypervisor_user }}@{{ item.hypervisor_name }}"'
+        groups:
+          - utility
+      with_items:
+        - "{{ utility_nodes }}"
+      when: item.hypervisor_name != "localhost"
 
-  - name: Add utility group-host - localhost
-    add_host:
-      name: "{{ item.name }}.{{ domain }}"
-      ansible_ssh_pass: "{{ secure_password }}"
-      ansible_ssh_user: kni
-      ansible_become: True
-      ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null '
-      groups:
-        - utility
-    with_items:
-      - "{{ utility_nodes }}"
-    when: item.hypervisor_name == "localhost"
+    - name: Add utility group-host - localhost
+      ansible.builtin.add_host:
+        name: "{{ item.name }}.{{ domain }}"
+        ansible_ssh_pass: "{{ secure_password }}"
+        ansible_ssh_user: kni
+        ansible_become: true
+        ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null '
+        groups:
+          - utility
+      with_items:
+        - "{{ utility_nodes }}"
+      when: item.hypervisor_name == "localhost"
 
-  - name: Add all hypervisor group-host
-    add_host:
-      name: "{{ item.hypervisor_name }}"
-      ansible_ssh_user: "{{ item.hypervisor_user }}"
-      ansible_ssh_private_key_file: "{{ item.hypervisor_ssh_key }}"
-      groups:
-        - hypervisor_host
-    with_items:
-      - "{{ bastion_nodes }}"
-      - "{{ utility_nodes }}"
-      - "{{ master_nodes }}"
-      - "{{ worker_nodes }}"
-    when:
-      - item.hypervisor_name != "localhost"
-      - item.state == "present"
+    - name: Add all hypervisor group-host
+      ansible.builtin.add_host:
+        name: "{{ item.hypervisor_name }}"
+        ansible_ssh_user: "{{ item.hypervisor_user }}"
+        ansible_ssh_private_key_file: "{{ item.hypervisor_ssh_key }}"
+        groups:
+          - hypervisor_host
+      with_items:
+        - "{{ bastion_nodes }}"
+        - "{{ utility_nodes }}"
+        - "{{ master_nodes }}"
+        - "{{ worker_nodes }}"
+      when:
+        - item.hypervisor_name != "localhost"
+        - item.state == "present"
 
 - name: Shutdown all nodes
   hosts:
@@ -80,20 +80,20 @@
     - variables.yaml
     - vault-variables.yaml
     - bm-ansible-nodes.json
-  ignore_errors: True
-  ignore_unreachable: True
-  gather_facts: False
+  ignore_errors: true
+  ignore_unreachable: true
+  gather_facts: false
   tasks:
-  - name: Shutdown host
-    shell: |
-      export KUBECONFIG=/home/kni/{{ cluster_name }}/auth/kubeconfig
-      for node in $(oc get nodes -o jsonpath='{.items[*].metadata.name}'); do oc debug node/${node} -- chroot /host echo pippo ; done
-      for node in $(oc get nodes -o jsonpath='{.items[*].metadata.name}'); do oc debug node/${node} -- chroot /host shutdown -h 3 ; done
-    ignore_errors: True
+    - name: Shutdown host
+      ansible.builtin.shell: |
+        export KUBECONFIG=/home/kni/{{ cluster_name }}/auth/kubeconfig
+        for node in $(oc get nodes -o jsonpath='{.items[*].metadata.name}'); do oc debug node/${node} -- chroot /host echo pippo ; done
+        for node in $(oc get nodes -o jsonpath='{.items[*].metadata.name}'); do oc debug node/${node} -- chroot /host shutdown -h 3 ; done
+      ignore_errors: true
 
-  - name: pause 6 min for shutdown
-    pause:
-      minutes: 6
+    - name: pause 6 min for shutdown
+      pause:
+        minutes: 6
 
 - name: Shutdown bastion and utility
   hosts:
@@ -103,14 +103,14 @@
     - variables.yaml
     - vault-variables.yaml
     - bm-ansible-nodes.json
-  ignore_errors: True
-  ignore_unreachable: True
-  gather_facts: False
+  ignore_errors: true
+  ignore_unreachable: true
+  gather_facts: false
   tasks:
-  - name: Shutdown host
-    shell: |
-      shutdown -h now
-    ignore_errors: True
+    - name: Shutdown host
+      ansible.builtin.shell: |
+        shutdown -h now
+      ignore_errors: true
 
 - name: Shutdown worker and master
   hosts:
@@ -121,21 +121,21 @@
     - vault-variables.yaml
     - bm-ansible-nodes.json
   tasks:
-  - name: Sleep 10 seconds
-    pause:
-      seconds: 10
+    - name: Sleep 10 seconds
+      pause:
+        seconds: 10
 
-  - name: Destroy virsh domain
-    virt:
-      name: "{{ item.name }}"
-      state: destroyed
-    delegate_to: "{{ item.hypervisor_name }}"
-    run_once: True
-    when:
-      - item.state == "present"
-    with_items:
-      - "{{ bastion_nodes }}"
-      - "{{ utility_nodes }}"
-      - "{{ master_nodes }}"
-      - "{{ worker_nodes }}"
-    ignore_errors: True
+    - name: Destroy virsh domain
+      community.libvirt.virt:
+        name: "{{ item.name }}"
+        state: destroyed
+      delegate_to: "{{ item.hypervisor_name }}"
+      run_once: true
+      when:
+        - item.state == "present"
+      with_items:
+        - "{{ bastion_nodes }}"
+        - "{{ utility_nodes }}"
+        - "{{ master_nodes }}"
+        - "{{ worker_nodes }}"
+    ignore_errors: true

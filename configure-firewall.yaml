@@ -1,0 +1,188 @@
+- name:  Configure Firewall on Hypervisor
+  hosts: kvmhost
+  become: true
+  vars_files:
+    - variables.yaml
+    - vault-variables.yaml
+    - bm-ansible-nodes.json
+  tasks:
+
+    - name: disable firewalld
+      systemd:
+        name: firewalld
+        state: stopped
+        enabled: False
+      ignore_errors: True
+
+    - name: iptables flush filter
+      iptables:
+        chain: "{{ item }}"
+        flush: yes
+      ignore_errors: True
+      with_items:
+        - 'INPUT'
+        - 'FORWARD'
+        - 'OUTPUT'
+        - 'LIBVIRT_INP'
+        - 'LIBVIRT_OUT'
+        - 'LIBVIRT_FWO'
+        - 'LIBVIRT_FWI'
+        - 'LIBVIRT_FWX'
+
+    - name: iptables flush nat
+      iptables:
+        table: nat
+        chain: '{{ item }}'
+        flush: yes
+      ignore_errors: True
+      with_items:
+        - 'INPUT'
+        - 'OUTPUT'
+        - 'PREROUTING'
+        - 'POSTROUTING'
+        - 'LIBVIRT_PRT'
+
+    - name: iptables flush mangle
+      iptables:
+        table: mangle
+        chain: '{{ item }}'
+        flush: yes
+      ignore_errors: True
+      with_items:
+        - 'INPUT'
+        - 'OUTPUT'
+        - 'PREROUTING'
+        - 'POSTROUTING'
+        - 'LIBVIRT_PRT'
+
+    - name: Make sure firewalld is started
+      ansible.builtin.systemd_service:
+        name: firewalld.service
+        state: started
+        enabled: true
+
+    - name: Create a baremetal zone
+      ansible.posix.firewalld:
+        zone: baremetal
+        state: present
+        permanent: yes
+
+    - name: Set default target to ACCEPT in the 'baremetal' zone
+      ansible.posix.firewalld:
+        zone: baremetal
+        target: ACCEPT
+        state: enabled
+        permanent: yes
+        
+    - name: Associate the baremetal bridge with the new zone
+      ansible.posix.firewalld:
+        interface: "{{ bridge_prov }}"
+        zone: baremetal
+        state: enabled
+        permanent: yes
+
+    - name: Associate baremetal subnet with the new zone
+      ansible.posix.firewalld:
+        source: "{{ baremetal_net.net }}/{{ baremetal_net.prefix }}"
+        zone: baremetal
+        state: enabled
+        permanent: yes
+
+    - name: Allow SSH
+      ansible.posix.firewalld:
+        service: ssh
+        permanent: true
+        state: enabled
+
+    - name: Allow Cockpit (9090)
+      ansible.posix.firewalld:
+        service: cockpit
+        permanent: true
+        state: enabled
+
+    - name: Allow VRRP protocol
+      ansible.posix.firewalld:
+        protocol: vrrp
+        source: "{{ baremetal_net.net }}/{{ baremetal_net.prefix }}"
+        permanent: true
+        state: enabled
+      when:
+        - kvmhost.enable_baremetal_gw
+
+    - name: Allow ipmi traffic to vbmc_ip - isolated
+      ansible.posix.firewalld:
+        rich_rule: rule family="ipv4" destination address="{{ item.vbmc_ip }}" source-port port="{{ item.vbmc_port }}" protocol="udp" accept
+        permanent: true
+        state: enabled
+      with_items:
+        - "{{ master_nodes }}"
+        - "{{ worker_nodes }}"
+        - "{{ utility_nodes }}"
+        - "{{ bastion_nodes }}"
+      when:
+        - kvmhost.provisioning_bridge_isolated|bool
+        - not redfish.enable|bool
+
+    - name: Allow ipmi traffic to vbmc_ip
+      ansible.posix.firewalld:
+        rich_rule: rule family="ipv4" destination address="{{ item.vbmc_ip }}" source-port port="{{ item.vbmc_port }}" protocol="udp" accept
+        permanent: true
+        state: enabled
+      with_items:
+        - "{{ master_nodes }}"
+        - "{{ worker_nodes }}"
+        - "{{ utility_nodes }}"
+        - "{{ bastion_nodes }}"
+      when:
+        - ansible_nodename == item.hypervisor_name
+        - not kvmhost.provisioning_bridge_isolated|bool
+        - not redfish.enable|bool
+
+    - name: Allow ipmi incoming traffic from provisioning network
+      ansible.posix.firewalld:
+        rich_rule: rule family="ipv4" source address="{{ provision_net.net }}/{{ provision_net.prefix }}" source-port port="623" protocol="udp" accept
+        permanent: true
+        state: enabled
+      when:
+        - not redfish.enable|bool
+
+    - name: Allow redfish incoming traffic from baremetal network
+      ansible.posix.firewalld:
+        rich_rule: rule family="ipv4" source address="{{ baremetal_net.net }}/{{ baremetal_net.prefix }}" source-port port="{{ redfish.listen_port }}" protocol="tcp" accept
+        permanent: true
+        state: enabled
+      when:
+        - redfish.enable|bool
+
+    - name: Add direct forwarding/nat rules to to nftables for provisioning network via firewalld
+      ansible.builtin.command:
+        cmd: "{{ item }}"
+      loop:
+        # Forwarding rules
+        - firewall-cmd --permanent --direct --add-rule ipv4 filter FORWARD 1 -s {{ provision_net.net }}/{{ provision_net.prefix }} -j ACCEPT
+        - firewall-cmd --permanent --direct --add-rule ipv4 filter FORWARD 2 -d {{ provision_net.net }}/{{ provision_net.prefix }} -j ACCEPT
+
+        # NAT rules
+        - firewall-cmd --permanent --direct --add-rule ipv4 nat PREROUTING 1 -i {{ bridge_prov }} -p tcp --dport 443 -j DNAT --to-destination {{ vip.apps }}:443
+        - firewall-cmd --permanent --direct --add-rule ipv4 nat PREROUTING 2 -i {{ bridge_prov }} -p tcp --dport 6443 -j DNAT --to-destination {{ vip.api }}:6443
+        - firewall-cmd --permanent --direct --add-rule ipv4 nat POSTROUTING 3 -s {{ provision_net.net }}/{{ provision_net.prefix }} -j MASQUERADE
+      when:
+        - not redfish.enable|bool
+      
+    - name: Add direct forwarding/nat rules to to nftables for baremetal network via firewalld
+      ansible.builtin.command:
+        cmd: "{{ item }}"
+      loop:
+        # Forwarding rules
+        - firewall-cmd --permanent --direct --add-rule ipv4 filter FORWARD 1 -s {{ baremetal_net.net }}/{{ baremetal_net.prefix }} -j ACCEPT
+        - firewall-cmd --permanent --direct --add-rule ipv4 filter FORWARD 2 -d {{ baremetal_net.net }}/{{ baremetal_net.prefix }} -j ACCEPT
+        - firewall-cmd --permanent --direct --add-rule ipv4 filter FORWARD 3 -j REJECT --reject-with icmp-port-unreachable
+
+        # NAT rules
+        - firewall-cmd --permanent --direct --add-rule ipv4 nat PREROUTING 1 -i {{ ansible_default_ipv4.interface }} -p tcp --dport 443 -j DNAT --to-destination {{vip.apps}}:443
+        - firewall-cmd --permanent --direct --add-rule ipv4 nat PREROUTING 2 -i {{ ansible_default_ipv4.interface }} -p tcp --dport 6443 -j DNAT --to-destination {{vip.api}}:6443
+        - firewall-cmd --permanent --direct --add-rule ipv4 nat POSTROUTING 3 -s {{ baremetal_net.net }}/{{ baremetal_net.prefix }} -j MASQUERADE
+
+    - name: Reload firewalld
+      ansible.builtin.command:
+        cmd: firewall-cmd --complete-reload

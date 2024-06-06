@@ -1,21 +1,21 @@
-- name:  Add hypervisor host in inventory
+- name: Add hypervisor host in inventory
   hosts: localhost
   vars_files:
     - variables.yaml
     - vault-variables.yaml
     - bm-ansible-nodes.json
   tasks:
-  - name: Add all hypervisor group-host
-    add_host:
-      name: "{{ item.hypervisor_name }}"
-      ansible_ssh_user: "{{ item.hypervisor_user }}"
-      ansible_ssh_private_key_file: "{{ item.hypervisor_ssh_key }}"
-      groups:
-        - hypervisor_host
-    with_items: "{{ master_nodes }}"
-    when: item.hypervisor_name != "localhost"
+    - name: Add all hypervisor group-host
+      ansible.builtin.add_host:
+        name: "{{ item.hypervisor_name }}"
+        ansible_ssh_user: "{{ item.hypervisor_user }}"
+        ansible_ssh_private_key_file: "{{ item.hypervisor_ssh_key }}"
+        groups:
+          - hypervisor_host
+      with_items: "{{ master_nodes }}"
+      when: item.hypervisor_name != "localhost"
 
-- name:  Build master hosts
+- name: Build master hosts
   hosts:
     - localhost
     - hypervisor_host
@@ -24,46 +24,45 @@
     - vault-variables.yaml
     - bm-ansible-nodes.json
   tasks:
-  - name: Create Image for each master
-    shell: |
-      qemu-img create -f qcow2 -o preallocation=metadata {{ item.hypervisor_image_dir }}/{{ item.name }}.qcow2 {{ master.disk }}
-    delegate_to: "{{ item.hypervisor_name }}"
-    run_once: True
-    when:
-      - item.state == "present"
-    with_items: "{{ master_nodes }}"
+    - name: Create Image for each master
+      ansible.builtin.shell: |
+        qemu-img create -f qcow2 -o preallocation=metadata {{ item.hypervisor_image_dir }}/{{ item.name }}.qcow2 {{ master.disk }}
+      delegate_to: "{{ item.hypervisor_name }}"
+      run_once: true
+      when:
+        - item.state == "present"
+      with_items: "{{ master_nodes }}"
 
-  - name: Defining master VMs - virtualbmc
-    shell: |
-      virt-install --ram {{ master.memory }} --vcpus {{ master.cpu }} --os-variant rhel9.4 --disk path={{ item.hypervisor_image_dir }}/{{ item.name }}.qcow2,device=disk,bus=virtio,format=qcow2 --noautoconsole --vnc --network bridge:{{ bridge_prov }},mac={{ item.provisioning_mac }} --network bridge:{{ bridge_bm }},mac={{ item.baremetal_mac }} --name {{ item.name }} --cpu host-passthrough --dry-run --print-xml > /tmp/{{ item.name }}.xml
-      virsh define /tmp/{{ item.name }}.xml
-    delegate_to: "{{ item.hypervisor_name }}"
-    run_once: True
-    with_items: "{{ master_nodes }}"
-    when:
-      - not redfish.enable|bool
-      - item.state == "present"
+    - name: Defining master VMs - virtualbmc
+      ansible.builtin.shell: |
+        virt-install --ram {{ master.memory }} --vcpus {{ master.cpu }} --os-variant rhel9.4 --disk path={{ item.hypervisor_image_dir }}/{{ item.name }}.qcow2,device=disk,bus=virtio,format=qcow2 --noautoconsole --vnc --network bridge:{{ bridge_prov }},mac={{ item.provisioning_mac }} --network bridge:{{ bridge_bm }},mac={{ item.baremetal_mac }} --name {{ item.name }} --cpu host-passthrough --dry-run --print-xml > /tmp/{{ item.name }}.xml
+        virsh define /tmp/{{ item.name }}.xml
+      delegate_to: "{{ item.hypervisor_name }}"
+      run_once: true
+      with_items: "{{ master_nodes }}"
+      when:
+        - not redfish.enable|bool
+        - item.state == "present"
 
-  - name: Defining master VMs - redfish
-    shell: |
-      virt-install --check all=off --ram {{ master.memory }} --vcpus {{ master.cpu }} --os-variant rhel9.4 --disk path={{ item.hypervisor_image_dir }}/{{ item.name }}.qcow2,device=disk,bus=virtio,format=qcow2 --noautoconsole --vnc --network bridge:{{ bridge_bm }},mac={{ item.baremetal_mac }} --name {{ item.name }} --cpu host-passthrough --dry-run --print-xml > /tmp/{{ item.name }}.xml
-      virsh define /tmp/{{ item.name }}.xml
-    delegate_to: "{{ item.hypervisor_name }}"
-    run_once: True
-    with_items: "{{ master_nodes }}"
-    when:
-      - redfish.enable|bool
-      - item.state == "present"
-  
-  # TODO: check ip address available in the hypervisor
-  - name: Create virtualbmc interface
-    shell: |
-      vbmc add "{{ item.name }}" --address "{{ item.vbmc_ip }}" --port "{{ item.vbmc_port }}" --username admin --password "{{ secure_password }}"
-      vbmc start "{{ item.name }}"
-    delegate_to: "{{ item.hypervisor_name }}"
-    run_once: True
-    with_items: "{{ master_nodes }}"
-    when:
-      - not redfish.enable|bool
-      - item.state == "present"
-
+    - name: Defining master VMs - redfish
+      ansible.builtin.shell: |
+        virt-install --check all=off --ram {{ master.memory }} --vcpus {{ master.cpu }} --os-variant rhel9.4 --disk path={{ item.hypervisor_image_dir }}/{{ item.name }}.qcow2,device=disk,bus=virtio,format=qcow2 --noautoconsole --vnc --network bridge:{{ bridge_bm }},mac={{ item.baremetal_mac }} --name {{ item.name }} --cpu host-passthrough --dry-run --print-xml > /tmp/{{ item.name }}.xml
+        virsh define /tmp/{{ item.name }}.xml
+      delegate_to: "{{ item.hypervisor_name }}"
+      run_once: true
+      with_items: "{{ master_nodes }}"
+      when:
+        - redfish.enable|bool
+        - item.state == "present"
+    
+    # TODO: check ip address available in the hypervisor
+    - name: Create virtualbmc interface
+      ansible.builtin.shell: |
+        vbmc add "{{ item.name }}" --address "{{ item.vbmc_ip }}" --port "{{ item.vbmc_port }}" --username admin --password "{{ secure_password }}"
+        vbmc start "{{ item.name }}"
+      delegate_to: "{{ item.hypervisor_name }}"
+      run_once: true
+      with_items: "{{ master_nodes }}"
+      when:
+        - not redfish.enable|bool
+        - item.state == "present"

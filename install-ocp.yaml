@@ -6,7 +6,7 @@
     - bm-ansible-nodes.json
   tasks:
   - name: Add all hypervisor group-host
-    add_host:
+    ansible.builtin.add_host:
       name: "{{ item.hypervisor_name }}"
       ansible_ssh_user: "{{ item.hypervisor_user }}"
       ansible_ssh_private_key_file: "{{ item.hypervisor_ssh_key }}"
@@ -14,8 +14,8 @@
         - hypervisor_host
     when:
       - item.state == "present"
+      - item.hypervisor_name != "localhost"
     with_items: "{{ bastion_nodes }}"
-    when: item.hypervisor_name != "localhost"
 
 - name:  Add Bastion VM/Node
   hosts: localhost
@@ -25,7 +25,7 @@
     - bm-ansible-nodes.json
   tasks:
   - name: Add bastion group-host - no localhost
-    add_host:
+    ansible.builtin.add_host:
       name: "{{ item.name }}.{{ domain }}"
       ansible_ssh_pass: "{{ secure_password }}"
       ansible_ssh_user: kni
@@ -37,7 +37,7 @@
     when: item.hypervisor_name != "localhost"
 
   - name: Add bastion group-host - localhost
-    add_host:
+    ansible.builtin.add_host:
       name: "{{ item.name }}.{{ domain }}"
       ansible_ssh_pass: "{{ secure_password }}"
       ansible_ssh_user: kni
@@ -56,14 +56,14 @@
     - bm-ansible-nodes.json
   tasks:
   - name: Run create cluster
-    shell: |
+    ansible.builtin.shell: |
       openshift-baremetal-install --dir /home/kni/{{ cluster_name }} --log-level debug create cluster
     register: create_cluster
-    ignore_errors: True
+    ignore_errors: true
 
   # WA for slow internet connection
   - name: Re-run installation
-    shell: |
+    ansible.builtin.shell: |
       openshift-baremetal-install --dir /home/kni/{{ cluster_name }} --log-level debug wait-for install-complete
     register: install_complete
     until: install_complete.rc == 0
