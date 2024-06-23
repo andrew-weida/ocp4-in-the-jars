@@ -82,3 +82,6 @@ image_location: /root/images/rhel-9.4-x86_64-kvm.qcow2
 pull_secret_file: pull-secret.txt
 supported_os: rhel9
 ocpversion: stable-4.15
+# choose install method: ipi, ai, agent
+# ai method requires you to generate your iso and populate ai_discovery_iso_url variable at console.redhat.com
+install_method: agent

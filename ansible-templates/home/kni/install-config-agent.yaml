@@ -1,0 +1,76 @@
+apiVersion: v1
+baseDomain: {{ base_domain }}
+metadata:
+  name: {{ cluster_name }}
+networking:
+  networkType: OVNKubernetes 
+  clusterNetwork:
+  - cidr: 10.128.0.0/14 
+    hostPrefix: 23 
+  serviceNetwork: 
+  - 172.30.0.0/16
+  machineNetwork:
+  - cidr: {{ baremetal_net.net }}/{{ baremetal_net.prefix }}
+compute:
+- name: worker
+  replicas: {{ worker_nodes | selectattr('state', 'equalto', 'present') | list | length }}
+controlPlane:
+  name: master
+  replicas: {{ master_nodes | selectattr('state', 'equalto', 'present') | list | length }}
+platform:
+  baremetal:
+    apiVIP: {{ vip.api }}
+    ingressVIP: {{ vip.apps }}
+{% if redfish.enable == true %}
+    provisioningNetwork: Disabled
+{% else %}
+    provisioningNetworkCIDR: {{ provision_net.net }}/{{ provision_net.prefix }}
+    provisioningNetworkInterface: {{ provision_net.net_interface }}
+    provisioningDHCPRange: {{ provision_net.dhcp_start }},{{ provision_net.dhcp_end }}
+    provisioningNetwork: Managed
+{% endif %}
+    hosts:
+{% for host in master_nodes %}
+{% if host != 'localhost' %}
+      - name: {{ host.name }}
+        role: master
+        bmc:
+{% if redfish.enable == true  %}
+          address: redfish-virtualmedia://{{ host.redfish_ip }}:{{ host.redfish_port }}/redfish/v1/Systems/{{ host.name }}
+          disableCertificateVerification: true
+{% else %}
+          address: ipmi://{{ host.vbmc_ip }}:{{ host.vbmc_port }}
+{% endif %}
+          username: admin
+          password: {{ secure_password }}
+{% if redfish.enable == true  %}
+        bootMACAddress: {{ host.baremetal_mac }}
+{% else %}
+        bootMACAddress: {{ host.provisioning_mac }}
+{% endif %}
+        rootDeviceHints:
+          deviceName: "/dev/vda"
+{% endif %}
+{% endfor %}
+{% for host in worker_nodes %}
+{% if host != 'localhost' and host.state == 'present' %}
+      - name: {{ host.name }}
+        role: worker
+        bmc:
+{% if redfish.enable == true  %}
+          address: redfish-virtualmedia://{{ host.redfish_ip }}:{{ host.redfish_port }}/redfish/v1/Systems/{{ host.name }}
+          disableCertificateVerification: true
+{% else %}
+          address: ipmi://{{ host.vbmc_ip }}:{{ host.vbmc_port }}
+{% endif %}
+          username: admin
+          password: {{ secure_password }}
+{% if redfish.enable == true  %}
+        bootMACAddress: {{ host.baremetal_mac }}
+{% else %}
+        bootMACAddress: {{ host.provisioning_mac }}
+{% endif %}
+        rootDeviceHints:
+          deviceName: "/dev/vda"
+{% endif %}
+{% endfor %}

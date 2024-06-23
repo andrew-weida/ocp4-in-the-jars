@@ -34,8 +34,13 @@
       with_items: "{{ master_nodes }}"
 
     - name: Defining master VMs - virtualbmc
-      ansible.builtin.shell: |
-        virt-install --ram {{ master.memory }} --vcpus {{ master.cpu }} --os-variant rhel9.4 --disk path={{ item.hypervisor_image_dir }}/{{ item.name }}.qcow2,device=disk,bus=virtio,format=qcow2 --noautoconsole --vnc --network bridge:{{ bridge_prov }},mac={{ item.provisioning_mac }} --network bridge:{{ bridge_bm }},mac={{ item.baremetal_mac }} --name {{ item.name }} --cpu host-passthrough --dry-run --print-xml > /tmp/{{ item.name }}.xml
+      ansible.builtin.shell: >
+        virt-install --ram {{ master.memory }} --vcpus {{ master.cpu }} --os-variant rhel9.4
+        --disk path={{ item.hypervisor_image_dir }}/{{ item.name }}.qcow2,device=disk,bus=virtio,format=qcow2
+        --noautoconsole --vnc --network bridge:{{ bridge_prov }},mac={{ item.provisioning_mac }}
+        --network bridge:{{ bridge_bm }},mac={{ item.baremetal_mac }} --name {{ item.name }}
+        --cpu host-passthrough --dry-run --print-xml > /tmp/{{ item.name }}.xml
+
         virsh define /tmp/{{ item.name }}.xml
       delegate_to: "{{ item.hypervisor_name }}"
       run_once: true
@@ -44,17 +49,6 @@
         - not redfish.enable|bool
         - item.state == "present"
 
-    - name: Defining master VMs - redfish
-      ansible.builtin.shell: |
-        virt-install --check all=off --ram {{ master.memory }} --vcpus {{ master.cpu }} --os-variant rhel9.4 --disk path={{ item.hypervisor_image_dir }}/{{ item.name }}.qcow2,device=disk,bus=virtio,format=qcow2 --noautoconsole --vnc --network bridge:{{ bridge_bm }},mac={{ item.baremetal_mac }} --name {{ item.name }} --cpu host-passthrough --dry-run --print-xml > /tmp/{{ item.name }}.xml
-        virsh define /tmp/{{ item.name }}.xml
-      delegate_to: "{{ item.hypervisor_name }}"
-      run_once: true
-      with_items: "{{ master_nodes }}"
-      when:
-        - redfish.enable|bool
-        - item.state == "present"
-    
     # TODO: check ip address available in the hypervisor
     - name: Create virtualbmc interface
       ansible.builtin.shell: |
@@ -65,4 +59,32 @@
       with_items: "{{ master_nodes }}"
       when:
         - not redfish.enable|bool
+        - item.state == "present"
+
+    - name: Defining master VMs - redfish
+      ansible.builtin.shell: >
+        virt-install --check all=off --ram {{ master.memory }} --vcpus {{ master.cpu }} --os-variant rhel9.4
+        --disk path={{ item.hypervisor_image_dir }}/{{ item.name }}.qcow2,device=disk,bus=virtio,format=qcow2
+        --noautoconsole --vnc --network bridge:{{ bridge_bm }},mac={{ item.baremetal_mac }} --name {{ item.name }}
+        --cpu host-passthrough --dry-run --print-xml > /tmp/{{ item.name }}.xml
+
+        virsh define /tmp/{{ item.name }}.xml
+      delegate_to: "{{ item.hypervisor_name }}"
+      run_once: true
+      with_items: "{{ master_nodes }}"
+      when:
+        - redfish.enable|bool
+        - item.state == "present"
+
+    - name: Add data disk for localstorage
+      ansible.builtin.shell: >
+        virsh vol-create-as --pool default --name {{ item.name }}-data --capacity {{ item.data_disk_size_gb }}G
+
+        virt-xml {{ item.name }} --add-device --disk
+        type=volume,size={{ item.data_disk_size_gb }},source.type=volume,source.pool=default,source.volume={{ item.name }}-data,device=disk,bus=virtio,format=raw,serial=data,target=vdb
+      delegate_to: "{{ item.hypervisor_name }}"
+      run_once: true
+      with_items: "{{ master_nodes }}"
+      when:
+        - item.data_disk | default(false)
         - item.state == "present"

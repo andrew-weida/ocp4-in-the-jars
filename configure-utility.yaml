@@ -1,0 +1,188 @@
+- name: Add hypervisor host in inventory
+  hosts: localhost
+  vars_files:
+    - variables.yaml
+    - vault-variables.yaml
+    - bm-ansible-nodes.json
+  tasks:
+    - name: Add all hypervisor group-host
+      ansible.builtin.add_host:
+        name: "{{ item.hypervisor_name }}"
+        ansible_ssh_user: "{{ item.hypervisor_user }}"
+        ansible_ssh_private_key_file: "{{ item.hypervisor_ssh_key }}"
+        groups:
+          - hypervisor_host
+      when:
+        - item.state == "present"
+        - item.hypervisor_name != "localhost"
+      with_items: "{{ bastion_nodes }}"
+
+- name: Add Utility VM/Node
+  hosts: localhost
+  vars_files:
+    - variables.yaml
+    - vault-variables.yaml
+    - bm-ansible-nodes.json
+  tasks:
+    - name: Add utility group-host - no localhost
+      ansible.builtin.add_host:
+        name: "{{ item.name }}.{{ domain }}"
+        ansible_ssh_user: root
+        ansible_ssh_pass: "{{ secure_password }}"
+        ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ProxyCommand="ssh -W %h:%p -q {{ item.hypervisor_user }}@{{ item.hypervisor_name }}"'
+        groups:
+          - utility
+      with_items: "{{ utility_nodes }}"
+      when: item.hypervisor_name != "localhost"
+
+    - name: Add utility group-host - localhost
+      ansible.builtin.add_host:
+        name: "{{ item.name }}.{{ domain }}"
+        ansible_ssh_user: root
+        ansible_ssh_pass: "{{ secure_password }}"
+        ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null '
+        groups:
+          - utility
+      with_items: "{{ utility_nodes }}"
+      when: item.hypervisor_name == "localhost"
+
+- name: Prepare Utility Node
+  hosts: utility
+  vars_files:
+    - variables.yaml
+    - vault-variables.yaml
+    - bm-ansible-nodes.json
+  tasks:
+    - name: Download openshift-client-linux
+      ansible.builtin.get_url:
+        url: "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{{ ocpversion }}/openshift-client-linux.tar.gz"
+        dest: /home/kni/openshift-client-linux.tar.gz
+        mode: 0664
+
+    - name: Uncompress openshift-client-linux.tar.gz
+      ansible.builtin.unarchive:
+        src: /home/kni/openshift-client-linux.tar.gz
+        dest: /usr/bin/
+        remote_src: true
+        creates: /usr/bin/oc
+      become: true
+
+    - name: Remove existing cluster install directory
+      ansible.builtin.file:
+        path: /home/kni/{{ cluster_name }}
+        state: absent
+        owner: kni
+        group: kni
+
+    - name: Create /home/kni/{{ cluster_name }}/install_iso directory
+      ansible.builtin.file:
+        path: /home/kni/{{ cluster_name }}/install_iso
+        state: directory
+        owner: kni
+        group: kni
+        mode: 0755
+
+    - name: Create /home/kni/{{ cluster_name }}/openshift directory
+      ansible.builtin.file:
+        path: /home/kni/{{ cluster_name }}/openshift
+        state: directory
+        owner: kni
+        group: kni
+        mode: 0755
+
+    - name: Execute Pre-Reqs for Agent Based install
+      when: install_method == 'agent'
+      block:
+        - name: Copy pull-secret.txt
+          ansible.builtin.copy:
+            content: "{{ pull_secret }}"
+            dest: /home/kni/pull-secret.txt
+            owner: kni
+            group: kni
+            mode: 0600
+
+        - name: Copy install-config.yaml
+          ansible.builtin.template:
+            src: ansible-templates/home/kni/install-config-agent.yaml
+            dest: /home/kni/install-config.yaml
+            backup: true
+            owner: kni
+            group: kni
+
+        - name: Insert pullSecret in install-config.yaml
+          ansible.builtin.shell: |
+            echo -n "pullSecret: '" >> /home/kni/install-config.yaml
+            cat /home/kni/pull-secret.txt >> /home/kni/install-config.yaml
+            sed -E -i "s@^(pullSecret: .*)@\1'@g" /home/kni/install-config.yaml
+            echo "" >> /home/kni/install-config.yaml
+
+        - name: Insert sshKey in install-config.yaml
+          ansible.builtin.shell: |
+            echo -n "sshKey: '" >> /home/kni/install-config.yaml
+            cat /home/kni/.ssh/id_rsa.pub >> /home/kni/install-config.yaml
+            sed -E -i "s@^(sshKey: .*)@\1'@g" /home/kni/install-config.yaml
+
+        - name: Copy install-config.yaml to clusterconfigs directory
+          ansible.builtin.shell: |
+            cp -f install-config.yaml /home/kni/{{ cluster_name }}
+
+        - name: Copy install-config.yaml
+          ansible.builtin.template:
+            src: ansible-templates/home/kni/agent-config.yaml
+            dest: /home/kni/agent-config.yaml
+            backup: true
+            owner: kni
+            group: kni
+
+        - name: Copy agent-config.yaml to clusterconfigs directory
+          ansible.builtin.shell: |
+            cp -f agent-config.yaml /home/kni/{{ cluster_name }}
+
+        - name: Generate Agent ISO Image
+          ansible.builtin.command: "openshift-install --dir /home/kni/{{ cluster_name }} agent create image"
+
+        - name: Move OCP Install ISO Image to install_iso directoy
+          ansible.builtin.command: "mv /home/kni/{{ cluster_name }}/agent.x86_64.iso /home/kni/{{ cluster_name }}/install_iso/ocp_install.iso"
+
+    - name: Execute Pre-Reqs for Assisted Installer
+      when: install_method == 'ai'
+      block:
+        - name: Make sure pip is available
+          ansible.builtin.dnf:
+            name:
+              - python3-pip
+            state: present
+
+        - name: Install aicli python package
+          ansible.builtin.pip:
+            name:
+              - aicli
+            state: latest
+
+        - name: Download Assisted Installer Discovery ISO
+          ansible.builtin.get_url:
+            url: "{{ ai_discovery_iso_url }}"
+            dest: /home/kni/{{ cluster_name }}/ocp_ai_discovery.iso
+            mode: 0664
+
+        - name: Move OCP AI Discovery ISO Image to install_iso directoy
+          ansible.builtin.command: "mv /home/kni/{{ cluster_name }}/ocp_ai_discovery.iso /home/kni/{{ cluster_name }}/install_iso/ocp_install.iso"
+
+    - name: Set selinux context for install_iso directory
+      ansible.builtin.shell: |
+        sudo semanage fcontext -a -t httpd_sys_content_t "/home/kni/{{ cluster_name }}/install_iso(/.*)?"
+        sudo restorecon -Rv /home/kni/{{ cluster_name }}/install_iso
+
+    - name: Run OCP install ISO hosting httpd container
+      containers.podman.podman_container:
+        name: ocp_install_iso
+        image: quay.io/centos7/httpd-24-centos7:centos7
+        state: started
+        detach: true
+        volume:
+          - /home/kni/{{ cluster_name }}/install_iso:/var/www/html
+        ports:
+          - "8080:8080"
+      become: true
+
+

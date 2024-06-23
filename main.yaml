@@ -3,6 +3,7 @@
     - create-ssh-key
 
 - ansible.builtin.import_playbook: prepare-images-bastion.yaml
+  when: install_method == 'ipi'
   tags:
     - prepare-images-bastion
 
@@ -18,11 +19,18 @@
   tags:
     - prepare-utility
 
+- ansible.builtin.import_playbook: configure-utility.yaml
+  when: install_method == 'agent' or install_method == 'ai'
+  tags:
+    - configure-utility
+
 - ansible.builtin.import_playbook: prepare-bastion.yaml
+  when: install_method == 'ipi'
   tags:
     - prepare-bastion
 
 - ansible.builtin.import_playbook: configure-bastion.yaml
+  when: install_method == 'ipi'
   tags:
     - configure-bastion
 
@@ -42,4 +50,5 @@
     - scaledown-bastion
   when:
     - bastion.post_scaledown|bool
+    - install_method == 'ipi'
  

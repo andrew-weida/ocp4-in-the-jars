@@ -1,4 +1,4 @@
-- name:  Configure Firewall on Hypervisor
+- name: Configure Firewall on Hypervisor
   hosts: kvmhost
   become: true
   vars_files:
@@ -7,18 +7,18 @@
     - bm-ansible-nodes.json
   tasks:
 
-    - name: disable firewalld
-      systemd:
+    - name: Disable firewalld
+      ansible.builtin.systemd:
         name: firewalld
         state: stopped
-        enabled: False
-      ignore_errors: True
+        enabled: false
+      ignore_errors: true
 
-    - name: iptables flush filter
-      iptables:
+    - name: Iptables flush filter
+      ansible.builtin.iptables:
         chain: "{{ item }}"
-        flush: yes
-      ignore_errors: True
+        flush: true
+      ignore_errors: true
       with_items:
         - 'INPUT'
         - 'FORWARD'
@@ -29,12 +29,12 @@
         - 'LIBVIRT_FWI'
         - 'LIBVIRT_FWX'
 
-    - name: iptables flush nat
-      iptables:
+    - name: Iptables flush nat
+      ansible.builtin.iptables:
         table: nat
         chain: '{{ item }}'
-        flush: yes
-      ignore_errors: True
+        flush: true
+      ignore_errors: true
       with_items:
         - 'INPUT'
         - 'OUTPUT'
@@ -42,12 +42,12 @@
         - 'POSTROUTING'
         - 'LIBVIRT_PRT'
 
-    - name: iptables flush mangle
-      iptables:
+    - name: Iptables flush mangle
+      ansible.builtin.iptables:
         table: mangle
         chain: '{{ item }}'
-        flush: yes
-      ignore_errors: True
+        flush: true
+      ignore_errors: true
       with_items:
         - 'INPUT'
         - 'OUTPUT'
@@ -65,28 +65,28 @@
       ansible.posix.firewalld:
         zone: baremetal
         state: present
-        permanent: yes
+        permanent: true
 
     - name: Set default target to ACCEPT in the 'baremetal' zone
       ansible.posix.firewalld:
         zone: baremetal
         target: ACCEPT
         state: enabled
-        permanent: yes
-        
+        permanent: true
+
     - name: Associate the baremetal bridge with the new zone
       ansible.posix.firewalld:
         interface: "{{ bridge_prov }}"
         zone: baremetal
         state: enabled
-        permanent: yes
+        permanent: true
 
     - name: Associate baremetal subnet with the new zone
       ansible.posix.firewalld:
         source: "{{ baremetal_net.net }}/{{ baremetal_net.prefix }}"
         zone: baremetal
         state: enabled
-        permanent: yes
+        permanent: true
 
     - name: Allow SSH
       ansible.posix.firewalld:
@@ -167,8 +167,8 @@
         - firewall-cmd --permanent --direct --add-rule ipv4 nat PREROUTING 2 -i {{ bridge_prov }} -p tcp --dport 6443 -j DNAT --to-destination {{ vip.api }}:6443
         - firewall-cmd --permanent --direct --add-rule ipv4 nat POSTROUTING 3 -s {{ provision_net.net }}/{{ provision_net.prefix }} -j MASQUERADE
       when:
-        - not redfish.enable|bool
-      
+        - not redfish.enable | bool
+
     - name: Add direct forwarding/nat rules to to nftables for baremetal network via firewalld
       ansible.builtin.command:
         cmd: "{{ item }}"

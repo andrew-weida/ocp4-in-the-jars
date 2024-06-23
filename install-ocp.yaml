@@ -17,57 +17,219 @@
       - item.hypervisor_name != "localhost"
     with_items: "{{ bastion_nodes }}"
 
-- name:  Add Bastion VM/Node
+- name:  Add VM/Node to host group
   hosts: localhost
   vars_files:
     - variables.yaml
     - vault-variables.yaml
     - bm-ansible-nodes.json
   tasks:
-  - name: Add bastion group-host - no localhost
-    ansible.builtin.add_host:
-      name: "{{ item.name }}.{{ domain }}"
-      ansible_ssh_pass: "{{ secure_password }}"
-      ansible_ssh_user: kni
-      ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ProxyCommand="ssh -W %h:%p -q {{ item.hypervisor_user }}@{{ item.hypervisor_name }}"'
-      groups:
-        - bastion
-    with_items:
-      - "{{ bastion_nodes }}"
-    when: item.hypervisor_name != "localhost"
+    - name: Add Utility VM/Node to host groups
+      when: install_method == 'ipi'
+      block:
+        - name: Add bastion group-host - no localhost
+          ansible.builtin.add_host:
+            name: "{{ item.name }}.{{ domain }}"
+            ansible_ssh_pass: "{{ secure_password }}"
+            ansible_ssh_user: kni
+            ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ProxyCommand="ssh -W %h:%p -q {{ item.hypervisor_user }}@{{ item.hypervisor_name }}"'
+            groups:
+              - bastion
+          with_items:
+            - "{{ bastion_nodes }}"
+          when: item.hypervisor_name != "localhost"
 
-  - name: Add bastion group-host - localhost
-    ansible.builtin.add_host:
-      name: "{{ item.name }}.{{ domain }}"
-      ansible_ssh_pass: "{{ secure_password }}"
-      ansible_ssh_user: kni
-      ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null '
-      groups:
-        - bastion
-    with_items:
-      - "{{ bastion_nodes }}"
-    when: item.hypervisor_name == "localhost"
+        - name: Add bastion group-host - localhost
+          ansible.builtin.add_host:
+            name: "{{ item.name }}.{{ domain }}"
+            ansible_ssh_pass: "{{ secure_password }}"
+            ansible_ssh_user: kni
+            ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null '
+            groups:
+              - bastion
+          with_items:
+            - "{{ bastion_nodes }}"
+          when: item.hypervisor_name == "localhost"
 
-- name: Install OpenShift
+    - name: Add Utility VM/Node to host groups
+      when: install_method == 'ai' or install_method == 'agent'
+      block:
+        - name: Add utility group-host - no localhost
+          ansible.builtin.add_host:
+            name: "{{ item.name }}.{{ domain }}"
+            ansible_ssh_user: root
+            ansible_ssh_pass: "{{ secure_password }}"
+            ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ProxyCommand="ssh -W %h:%p -q {{ item.hypervisor_user }}@{{ item.hypervisor_name }}"'
+            groups:
+              - utility
+          with_items: "{{ utility_nodes }}"
+          when: item.hypervisor_name != "localhost"
+
+        - name: Add utility group-host - localhost
+          ansible.builtin.add_host:
+            name: "{{ item.name }}.{{ domain }}"
+            ansible_ssh_user: root
+            ansible_ssh_pass: "{{ secure_password }}"
+            ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null '
+            groups:
+              - utility
+          with_items: "{{ utility_nodes }}"
+          when: item.hypervisor_name == "localhost"
+
+- name: Install OpenShift (IPI)
   hosts: bastion
   vars_files:
     - variables.yaml
     - vault-variables.yaml
     - bm-ansible-nodes.json
   tasks:
-  - name: Run create cluster
-    ansible.builtin.shell: |
-      openshift-baremetal-install --dir /home/kni/{{ cluster_name }} --log-level debug create cluster
-    register: create_cluster
-    ignore_errors: true
+    - name: Execute IPI installation
+      when: install_method == 'ipi'
+      block:
+        - name: Run create cluster
+          ansible.builtin.shell: |
+            openshift-baremetal-install --dir /home/kni/{{ cluster_name }} --log-level debug create cluster
+          register: create_cluster
+          ignore_errors: true
 
-  # WA for slow internet connection
-  - name: Re-run installation
-    ansible.builtin.shell: |
-      openshift-baremetal-install --dir /home/kni/{{ cluster_name }} --log-level debug wait-for install-complete
-    register: install_complete
-    until: install_complete.rc == 0
-    delay: 30
-    retries: 2
-    when: not create_cluster.rc == 0
+        # WA for slow internet connection
+        - name: Re-run installation
+          ansible.builtin.shell: |
+            openshift-baremetal-install --dir /home/kni/{{ cluster_name }} --log-level debug wait-for install-complete
+          register: install_complete
+          until: install_complete.rc == 0
+          delay: 30
+          retries: 2
+          when: not create_cluster.rc == 0
+
+        - name: Read Content of kubeadmin-password file
+          ansible.builtin.slurp:
+            path: "/home/kni/{{ cluster_name }}/auth/kubeadmin-password"
+          register: kubeadmin_password
+
+        - name: Print summary
+          ansible.builtin.debug:
+            msg:
+              - "================ SUMMARY ================="
+              - "OpenShift console: https://openshift-console-openshift.apps.{{ cluster_name }}.{{ base_domain }}"
+              - "Kubeadmin password: {{ kubeadmin_password['content'] | b64decode }}"
+
+- name: Install OpenShift (Agent/AI Based)
+  hosts: utility
+  vars_files:
+    - variables.yaml
+    - vault-variables.yaml
+    - bm-ansible-nodes.json
+  tasks:
+    - name: Execute Agent based installation
+      when: install_method == 'agent' or install_method == 'ai'
+      block:
+        - name: Get redfish system inventory
+          community.general.redfish_info:
+            category: Systems
+            baseuri: "{{ baremetal_net.gateway }}:{{ redfish.listen_port }}"
+            username: "admin"
+            password: "{{ secure_password }}"
+          register: redfish_system_inventory
+
+        - name: Filter systems where Name contains master- or worker- and extract Ids
+          ansible.builtin.set_fact:
+            redfish_ids: >-
+              {{
+                redfish_system_inventory.redfish_facts.system.entries
+                | selectattr('1.Name', 'search', 'master-|worker-')
+                | map(attribute='1.Id')
+                | list
+              }}
+
+        - name: Shutdown hosts if needed 
+          community.general.redfish_command:
+            category: Systems
+            command: PowerForceOff
+            resource_id: "{{ item }}"
+            baseuri: "{{ baremetal_net.gateway }}:{{ redfish.listen_port }}"
+            username: "admin"
+            password: "{{ secure_password }}"
+          loop: "{{ redfish_ids }}"
+
+        - name: Insert Virtual Media
+          ansible.builtin.shell: |
+            curl -k -u admin:{{ secure_password }} \
+            -d '{"Image":"http://{{ utility_nodes.0.baremetal_ip }}:8080/ocp_install.iso", "Inserted": true}' \
+            -H "Content-Type: application/json" \
+            -X POST https://{{ baremetal_net.gateway }}:{{ redfish.listen_port }}/redfish/v1/Systems/{{ item }}/VirtualMedia/Cd/Actions/VirtualMedia.InsertMedia
+          loop: "{{ redfish_ids }}"
+          register: curl_output
+
+        - name: Set boot to CD
+          ansible.builtin.shell: |
+            curl -k -u admin:{{ secure_password }} \
+            -X PATCH -H 'Content-Type: application/json' \
+            -d '{"Boot": {"BootSourceOverrideTarget": "Cd", "BootSourceOverrideMode": "UEFI", "BootSourceOverrideEnabled": "Once"}}' \
+            https://{{ baremetal_net.gateway }}:{{ redfish.listen_port }}/redfish/v1/Systems/{{ item }}
+          loop: "{{ redfish_ids }}"
+          register: curl_output
+
+        - name: Set boot source back to HDD
+          ansible.builtin.shell: |
+            curl -k -u admin:{{ secure_password }} \
+            -X PATCH -H 'Content-Type: application/json' \
+            -d '{"Boot": {"BootSourceOverrideTarget": "Hdd", "BootSourceOverrideMode": "UEFI", "BootSourceOverrideEnabled": "Continuous"}}' \
+            https://{{ baremetal_net.gateway }}:{{ redfish.listen_port }}/redfish/v1/Systems/{{ item }}
+          loop: "{{ redfish_ids }}"
+          register: curl_output
+
+        - name: Stop ocp_install_iso container
+          containers.podman.podman_container:
+            name: ocp_install_iso
+            state: stopped
+          become: true
+
+        - name: Start hosts
+          community.general.redfish_command:
+            category: Systems
+            command: PowerOn
+            resource_id: "{{ item }}"
+            baseuri: "{{ baremetal_net.gateway }}:{{ redfish.listen_port }}"
+            username: "admin"
+            password: "{{ secure_password }}"
+          loop: "{{ redfish_ids }}"
+
+        - name: Monitor Agent Based Install Process
+          when: install_method == 'agent'
+          block:
+          - name: Start monitoring of installation (wait-for bootstrap-complate)
+            ansible.builtin.shell: openshift-install --dir /home/kni/{{ cluster_name }} agent wait-for bootstrap-complete --log-level=debug 2> /tmp/install.log &
+            async: 1800
+            poll: 30
+
+          - name: Wait for "Cluster installation in progress"
+            ansible.builtin.wait_for:
+              path: "/tmp/install.log"
+              search_regex: Cluster installation in progress
+              connect_timeout: 1200
+              timeout: 1200
+
+          - name: Monitor installation status - bootstrap-completed
+            ansible.builtin.command: "openshift-install --dir /home/kni/{{ cluster_name }} agent wait-for bootstrap-complete --log-level=debug"
+            timeout: 2500
+            register: abi_bootstrap
+
+          - name: Monitor installation status - install-completed
+            ansible.builtin.command: openshift-install --dir /home/kni/{{ cluster_name }} agent wait-for install-complete --log-level=debug
+            register: abi_install
+            timeout: 2500
+
+          - name: Read Content of kubeadmin-password file
+            ansible.builtin.slurp:
+              path: "/home/kni/{{ cluster_name }}/auth/kubeadmin-password"
+            register: kubeadmin_password
+
+          - name: Print summary
+            ansible.builtin.debug:
+              msg:
+                - "================ SUMMARY ================="
+                - "OpenShift console: https://openshift-console-openshift.apps.{{ cluster_name }}.{{ base_domain }}"
+                - "Kubeadmin password: {{ kubeadmin_password['content'] | b64decode }}"
+
 

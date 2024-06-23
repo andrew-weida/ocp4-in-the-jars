@@ -272,9 +272,6 @@
       community.general.timezone:
         name: UTC
 
-    - debug:
-        msg: "user: {{ rh_subcription_user }} pw: {{ rh_subcription_password }}"
-
     - name: Registering Utility
       community.general.redhat_subscription:
         state: present
@@ -317,6 +314,7 @@
           - bind
           - dhcp-server
           - ipmitool
+          - /usr/bin/nmstatectl
 
     - name: Create User kni
       ansible.builtin.user:
@@ -419,3 +417,15 @@
         state: started
         daemon_reload: true
         enabled: true
+
+    - name: Update DNS1 for ifcfg-eth0 to use utility as its nameserver
+      ansible.builtin.lineinfile:
+        path: /etc/sysconfig/network-scripts/ifcfg-eth0
+        regexp: '^DNS1='
+        line: 'DNS1={{ utility_nodes.0.baremetal_ip }}'
+
+    - name: Restart NetworkManager
+      ansible.builtin.systemd_service:
+        name: NetworkManager
+        daemon_reload: true
+        state: restarted
